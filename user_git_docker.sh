@@ -1,9 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "[+] Creating user 'wazuh'..."
-
-# Create user with home directory and default shell
+echo "[1/7] Creating user 'wazuh'..."
 if id "wazuh" &>/dev/null; then
     echo "User 'wazuh' already exists."
 else
@@ -11,29 +9,39 @@ else
     echo "User 'wazuh' created."
 fi
 
-# Add user to sudoers with no password
-echo "[+] Granting passwordless sudo..."
+echo "[2/7] Granting passwordless sudo to 'wazuh'..."
 echo "wazuh ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/wazuh > /dev/null
 sudo chmod 0440 /etc/sudoers.d/wazuh
 
-# Install Git, Docker, Docker Compose
-echo "[+] Installing Git, Docker, Docker Compose..."
+echo "[3/7] Adding 'wazuh' to docker group..."
+sudo usermod -aG docker wazuh
 
-# Enable Docker repo
+echo "[4/7] Setting vm.max_map_count to 262144..."
+sudo sysctl -w vm.max_map_count=262144
+if ! grep -q "^vm.max_map_count" /etc/sysctl.conf; then
+    echo "vm.max_map_count=262144" | sudo tee -a /etc/sysctl.conf
+else
+    sudo sed -i 's/^vm.max_map_count.*/vm.max_map_count=262144/' /etc/sysctl.conf
+fi
+echo "✓ max_map_count set permanently in /etc/sysctl.conf"
+
+echo "[5/7] Installing Git, Docker, and Docker Compose..."
+
 sudo dnf install -y dnf-plugins-core
 sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 
-# Install all packages
 sudo dnf install -y git docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Enable and start Docker
+echo "[6/7] Enabling and starting Docker..."
 sudo systemctl enable --now docker
 
-# Add wazuh to docker group
-echo "[+] Adding 'wazuh' to docker group..."
-sudo usermod -aG docker wazuh
+echo "[7/7] Cloning wazuh-docker repo as 'wazuh'..."
+sudo -u wazuh -i bash << 'EOF'
+cd ~
+git clone https://github.com/wazuh/wazuh-docker.git -b v4.12.0
+EOF
 
-echo "[✓] Setup complete."
-echo "[i] You can now switch to 'wazuh' user and run docker without sudo:"
-echo "    su - wazuh"
-echo "    docker run hello-world"
+echo -e "\n[✓] All done!"
+echo "Log in as 'wazuh' with: su - wazuh"
+echo "Verify Docker works without sudo: docker run hello-world"
+echo "Verify max_map_count: sysctl vm.max_map_count"
